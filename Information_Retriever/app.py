@@ -5,17 +5,12 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 import os
 from typing import List, Dict
-from serpapi import GoogleSearch  # Or use Scraper API
-import groq  # Import the Groq API client library
+from serpapi import GoogleSearch 
+import groq
 from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnableSequence, RunnableLambda
-# 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
-os.environ['GROQ_API_KEY']='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'
-# 1070efd649cb5229ed9acd7606542d8d66ce2d7a3062fe13e41dd3ba5e10ed8d
 
-os.environ['SERPAPI_API_KEY']='1070efd649cb5229ed9acd7606542d8d66ce2d7a3062fe13e41dd3ba5e10ed8d'
-# --- Configuration ---
-# Set your Groq API key
+
 groq.api_key = os.environ.get("GROQ_API_KEY")
 
 # Set your SerpAPI API key
@@ -36,8 +31,12 @@ def connect_to_google_sheets(credentials):
 
 # --- Data Loading ---
 def load_data():
+   try: 
     data_source = st.radio("Select Data Source:", ("CSV File", "Google Sheets"))
     df = None
+    sheet_id = None
+    sheet_name = None
+    service = None
     if data_source == "CSV File":
         uploaded_file = st.file_uploader("Upload CSV File", type="csv")
         if uploaded_file:
@@ -68,9 +67,12 @@ def load_data():
     if df is not None:
         st.write("Data Preview:")
         st.dataframe(df.head())
-        return df
+        return df, sheet_id, sheet_name, service
     else:
-        return None
+        return None,None ,None,None
+   except Exception as e:
+        st.error(f"Error loading data: {e}")
+        return None, None, None, None
 
 # --- Prompt Input ---
 def get_user_prompt():
@@ -146,7 +148,7 @@ def main():
     st.title("AI Information Extractor")
 
     # Load data
-    df = load_data()
+    df, sheet_id, sheet_name, service = load_data()
     if df is None:
         return
 
@@ -167,8 +169,10 @@ def main():
             search_results = search_web(query)
 
             # Extract information using LLM
-            
-            extracted_info = extract_information(query, search_results)
+            try:
+                extracted_info = extract_information(query, search_results)
+            except Exception as e:
+                st.error("Error extracting information:")
             
                 
 
@@ -176,15 +180,30 @@ def main():
 
         # Display results
         st.write("Extracted Information:")
-        st.dataframe(pd.DataFrame(extracted_data))
+        ouput_df=pd.DataFrame(extracted_data)
+        st.dataframe(ouput_df)
 
         # Download CSV
         st.download_button(
             "Download CSV",
-            pd.DataFrame(extracted_data).to_csv(index=False).encode("utf-8"),
+            ouput_df.to_csv(index=False).encode("utf-8"),
             "extracted_data.csv",
             "text/csv",
         )
+        
+        if service and sheet_id and sheet_name:
+            if st.button("Update Google Sheet"):
+                try:
+                    range_name = f"{sheet_name}!A:Z"  # Adjust range as needed
+                    service.spreadsheets().values().update(
+                        spreadsheetId=sheet_id,
+                        range=range_name,
+                        valueInputOption="USER_ENTERED",
+                        body={"values": output_df.values.tolist()},
+                    ).execute()
+                    st.success("Google Sheet updated successfully!")
+                except Exception as e:
+                    st.error(f"Error updating Google Sheet: {e}")
 
 if __name__ == "__main__":
     main()
