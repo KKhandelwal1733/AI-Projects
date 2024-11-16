@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-
+import requests
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 import os
@@ -10,8 +10,6 @@ import groq
 from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnableSequence, RunnableLambda
 
-
-groq.api_key = os.environ.get("GROQ_API_KEY")
 
 # Set your SerpAPI API key
 serpapi_api_key = os.environ.get("SERPAPI_API_KEY")
@@ -94,52 +92,51 @@ def search_web(query):
     return results["organic_results"]  # Adjust based on SerpAPI response structure
 
 # --- LLM Extraction ---
-def extract_information(prompt, search_results):
-    # Create a Langchain prompt template
-    template = """{prompt} from the following web results:
-    {web_results}"""
-    prompt_template = PromptTemplate(
-    input_variables=["prompt", "web_results"],
-    template=template
-    )
+def query(payload):
+    """
+    Send a POST request to the Hugging Face Inference API with the question and context.
+    Args:
+        payload (dict): A dictionary containing "question" and "context".
+    Returns:
+        dict: The API response containing the answer or error details.
+    """
+    API_URL = "https://api-inference.huggingface.co/models/deepset/roberta-base-squad2"
+    headers = {"Authorization": "Bearer hugging_face_token"}
+    try:
+        response = requests.post(API_URL, headers=headers, json=payload)
+        response.raise_for_status()  # Raise an error for HTTP codes 4xx or 5xx
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        return {"error": str(e)}
 
-    # Prepare the prompt with search results
-    formatted_results = "\n".join(
+def extract_information(prompt, search_results):
+    """
+    Extract information using the Hugging Face Question Answering API.
+    Args:
+        prompt (str): The question to be answered.
+        search_results (list[dict]): A list of dictionaries containing "title", "snippet", and "link".
+    Returns:
+        str: The extracted answer or an error message.
+    """
+    # Combine search results into a single context string
+    context = "\n".join(
         [
-            f"**{result['title']}**\n{result['snippet']}\n{result['link']}\n"
+            f"{result['title']}: {result['snippet']} ({result['link']})"
             for result in search_results
         ]
     )
 
-    # Initialize the Groq client and create a completion function
-    client = groq.Groq(api_key=groq.api_key) 
+    # Prepare the payload for the Hugging Face API
+    payload = {
+        "question": prompt,
+        "context": context
+    }
 
-    def groq_completion(inputs):
-        prompt = inputs
-    # Making the API call to Groq and getting the response
-        response = client.chat.completions.create(
-        model="gemma2-9b-it",  # You can specify other Groq models if needed
-        messages=[{"role": "user", "content": prompt}],
-        )
-        return response.choices[0].message.content
-    
-    
-    groq_runnable = RunnableLambda(groq_completion)
-
-    # Wrap the prompt_template as a RunnableLambda
-    prompt_runnable = RunnableLambda(lambda inputs: prompt_template.format(**inputs))
-
-    # Define the final sequence to chain the prompt and completion function
-    sequence = RunnableSequence(prompt_runnable,groq_runnable)  
-
-     # Run the sequence with the full prompt
-    response = sequence.invoke(
-        {
-            'prompt':prompt,
-            'web_results': formatted_results
-        }
-    )
-    return response.strip()
+    # Query the API and process the response
+    response = query(payload)
+    if "error" in response:
+        return f"Error: {response['error']}"
+    return response.get("answer", "No relevant information found.")
 
 
 
@@ -172,6 +169,7 @@ def main():
             try:
                 extracted_info = extract_information(query, search_results)
             except Exception as e:
+                st.error(f"An error occurred: {e}")
                 st.error("Error extracting information:")
             
                 
