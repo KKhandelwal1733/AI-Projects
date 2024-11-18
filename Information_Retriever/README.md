@@ -76,4 +76,4 @@ This project is an AI-powered tool that helps you extract information from web s
 
 ## Loom Video Walkthrough
 
-[Link to your Loom video]
+(https://drive.google.com/file/d/1RoIWBIMdRXTidGdqvH2Be4h31czpfOh9/view?usp=drive_link)
